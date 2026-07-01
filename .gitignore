@@ -1,0 +1,38 @@
+# Python Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Logs & Caches
+*.log
+.cache/
+
+# Local configuration & Editor folders
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Test and coverage
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# OS files
+.DS_Store
+
+# Ignore desktop files accidentally generated in workspace scripts dir
+app/scripts/*.desktop

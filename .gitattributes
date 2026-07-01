@@ -1,0 +1,25 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Enforce LF for source files and scripts
+*.py text eol=lf
+*.sh text eol=lf
+*.desktop text eol=lf
+
+# Documentation
+*.md text
+
+# Mark common binary formats
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+
+# Exclude generated desktop files from source archives
+app/scripts/*.desktop export-ignore
+
+# End of attributes

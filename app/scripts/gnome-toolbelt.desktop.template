@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Toolbelt
+Comment=Switch CPU power profiles and theme appearance from GNOME top bar
+Exec=__EXEC_PATH__
+Icon=preferences-system-power-symbolic
+Terminal=false
+Categories=Utility;Settings;System;
+StartupNotify=false
+X-GNOME-Autostart-enabled=true
