@@ -73,9 +73,9 @@ class TestIndicatorMenu(unittest.TestCase):
         # Let's mock threading.Thread to run the target synchronously.
         target_fn = None
         
-        def mock_thread_init(target, daemon):
+        def mock_thread_init(*args, **kwargs):
             nonlocal target_fn
-            target_fn = target
+            target_fn = kwargs.get('target')
             return MagicMock()
             
         with patch('threading.Thread', side_effect=mock_thread_init):
@@ -98,9 +98,9 @@ class TestIndicatorMenu(unittest.TestCase):
         self.mock_wifi_manager.get_active_wifi.side_effect = Exception("D-Bus failure")
         
         target_fn = None
-        def mock_thread_init(target, daemon):
+        def mock_thread_init(*args, **kwargs):
             nonlocal target_fn
-            target_fn = target
+            target_fn = kwargs.get('target')
             return MagicMock()
             
         with patch('threading.Thread', side_effect=mock_thread_init):
