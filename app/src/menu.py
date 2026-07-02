@@ -318,8 +318,10 @@ class IndicatorMenu(Gtk.Menu):
                     disconnect_label = "Disconnecting..."
                     
                 disconnect_item = Gtk.MenuItem.new_with_label(disconnect_label)
-                path_to_disconnect = active_path if (active_path and active_path != '/') else None
-                disconnect_item.connect('activate', self.on_wifi_disconnect_clicked, path_to_disconnect)
+                if active_path:
+                    disconnect_item.connect('activate', self.on_wifi_disconnect_clicked, active_path)
+                else:
+                    disconnect_item.set_sensitive(False)
                 
                 if is_changing and self.wifi_changing_to_uuid is None:
                     disconnect_item.set_sensitive(False)
