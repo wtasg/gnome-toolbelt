@@ -9,6 +9,7 @@ from gi.repository import Gtk
 
 from .power_manager import PowerManager
 from .theme_manager import ThemeManager
+from .wifi_manager import WifiManager
 from .indicator import CPUProfileIndicator
 from .menu import IndicatorMenu
 
@@ -52,6 +53,7 @@ def main():
     # 1. Initialize logic managers
     power_mgr = PowerManager()
     theme_mgr = ThemeManager()
+    wifi_mgr = WifiManager()
     
     # 2. Initialize AppIndicator with starting CPU profile
     initial_profile = power_mgr.get_active_profile()
@@ -61,6 +63,7 @@ def main():
     menu = IndicatorMenu(
         power_manager=power_mgr,
         theme_manager=theme_mgr,
+        wifi_manager=wifi_mgr,
         indicator_updater=indicator.update_profile
     )
     
@@ -83,6 +86,10 @@ def main():
             theme_mgr.close()
         except Exception:
             logger.debug("ThemeManager.close() raised during shutdown; continuing.")
+        try:
+            wifi_mgr.close()
+        except Exception:
+            logger.debug("WifiManager.close() raised during shutdown; continuing.")
 
 if __name__ == '__main__':
     main()

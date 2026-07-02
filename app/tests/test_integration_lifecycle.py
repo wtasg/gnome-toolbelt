@@ -1,6 +1,7 @@
 import unittest
 from app.src.power_manager import PowerManager
 from app.src.theme_manager import ThemeManager
+from app.src.wifi_manager import WifiManager
 
 
 class FakeProxy:
@@ -58,6 +59,11 @@ class IntegrationLifecycleTest(unittest.TestCase):
         fake_proxy = FakeProxy()
         fake_settings = FakeSettings()
 
+        fake_nm_proxy = FakeProxy()
+        fake_settings_proxy = FakeProxy()
+        from unittest.mock import MagicMock
+        wm = WifiManager(bus=MagicMock(), nm_proxy=fake_nm_proxy, settings_proxy=fake_settings_proxy)
+
         pm = PowerManager(proxy=fake_proxy)
         tm = ThemeManager(settings=fake_settings)
 
@@ -74,6 +80,7 @@ class IntegrationLifecycleTest(unittest.TestCase):
         # Now shutdown / cleanup
         pm.close()
         tm.close()
+        wm.close()
 
         # After close, handlers should have been disconnected and references cleared
         self.assertNotIn(pm._properties_changed_handler_id, getattr(fake_proxy, '_connected', {}))
@@ -82,6 +89,10 @@ class IntegrationLifecycleTest(unittest.TestCase):
         self.assertIsNone(tm.on_changed_callback)
         self.assertIsNone(pm.power_proxy)
         self.assertIsNone(tm.theme_settings)
+        
+        self.assertIsNone(wm.bus)
+        self.assertIsNone(wm.nm_proxy)
+        self.assertIsNone(wm.settings_proxy)
 
 
 if __name__ == '__main__':
