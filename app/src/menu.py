@@ -305,6 +305,7 @@ class IndicatorMenu(Gtk.Menu):
                     
                 item = Gtk.CheckMenuItem.new_with_label(label_text)
                 item.set_active(is_active)
+                item.set_sensitive(not is_changing)
                 item.connect('activate', self.on_wifi_item_clicked, net['path'], net['uuid'])
                 self.wifi_submenu.append(item)
             self.updating_ui = False
@@ -369,6 +370,12 @@ class IndicatorMenu(Gtk.Menu):
     def on_activation_completed(self, success, original_label, item):
         logger.info("Wi-Fi activation completed. Success: %s", success)
         item.set_label(original_label)
+        if not success:
+            self.wifi_changing_to_uuid = None
+            self.wifi_changing_time = 0.0
+            if self.wifi_monitor_timer_id is not None:
+                GLib.source_remove(self.wifi_monitor_timer_id)
+                self.wifi_monitor_timer_id = None
         self.refresh_wifi_submenu()
 
     def on_wifi_disconnect_clicked(self, item, active_connection_path):
@@ -406,6 +413,12 @@ class IndicatorMenu(Gtk.Menu):
     def on_deactivation_completed(self, success, original_label, item):
         logger.info("Wi-Fi deactivation completed. Success: %s", success)
         item.set_label(original_label)
+        if not success:
+            self.wifi_changing_to_uuid = None
+            self.wifi_changing_time = 0.0
+            if self.wifi_monitor_timer_id is not None:
+                GLib.source_remove(self.wifi_monitor_timer_id)
+                self.wifi_monitor_timer_id = None
         self.refresh_wifi_submenu()
 
     def start_wifi_monitor_timer(self):
