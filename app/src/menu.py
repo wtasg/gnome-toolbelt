@@ -20,6 +20,7 @@ class IndicatorMenu(Gtk.Menu):
         self.wifi_changing_to_uuid = None
         self.wifi_changing_time = 0.0
         self.wifi_monitor_timer_id = None
+        self._wifi_fetching = False
 
         logger.info("Building drop-down menu items...")
         self.build_menu()
@@ -233,16 +234,35 @@ class IndicatorMenu(Gtk.Menu):
         if not self.wifi_manager or not hasattr(self, 'wifi_submenu'):
             return
             
-        logger.info("Populating Wi-Fi submenu...")
+        if self._wifi_fetching:
+            logger.debug("Wi-Fi fetch already in progress, skipping redundant refresh request.")
+            return
+            
+        self._wifi_fetching = True
+        
+        def run_fetch():
+            try:
+                saved_nets = self.wifi_manager.get_saved_wifi_connections()
+                active_uuid, active_path = self.wifi_manager.get_active_wifi()
+                GLib.idle_add(self.on_wifi_fetch_completed, saved_nets, active_uuid, active_path)
+            except Exception as e:
+                logger.error("Error fetching Wi-Fi details in background: %s", e)
+                GLib.idle_add(self.on_wifi_fetch_failed)
+                
+        threading.Thread(target=run_fetch, daemon=True).start()
+
+    def on_wifi_fetch_completed(self, saved_nets, active_uuid, active_path):
+        self._wifi_fetching = False
+        if not hasattr(self, 'wifi_submenu'):
+            return
+            
+        logger.info("Populating Wi-Fi submenu with fetched data...")
         # Clear previous menu items
         for child in self.wifi_submenu.get_children():
             self.wifi_submenu.remove(child)
             child.destroy()
             
         now = time.time()
-        
-        saved_nets = self.wifi_manager.get_saved_wifi_connections()
-        active_uuid, active_path = self.wifi_manager.get_active_wifi()
         
         # Check changing state expiration/resolution
         if self.wifi_changing_time > 0:
@@ -279,7 +299,7 @@ class IndicatorMenu(Gtk.Menu):
             for net in saved_nets:
                 is_active = (net['uuid'] == effective_active_uuid)
                 
-                label_text = net['id']
+                label_text = net['id'] or net['uuid'] or "Unknown Network"
                 if is_changing and net['uuid'] == self.wifi_changing_to_uuid:
                     label_text += " (changing...)"
                     
@@ -298,7 +318,7 @@ class IndicatorMenu(Gtk.Menu):
                     disconnect_label = "Disconnecting..."
                     
                 disconnect_item = Gtk.MenuItem.new_with_label(disconnect_label)
-                path_to_disconnect = active_path if active_path else '/'
+                path_to_disconnect = active_path if (active_path and active_path != '/') else None
                 disconnect_item.connect('activate', self.on_wifi_disconnect_clicked, path_to_disconnect)
                 
                 if is_changing and self.wifi_changing_to_uuid is None:
@@ -307,6 +327,9 @@ class IndicatorMenu(Gtk.Menu):
                 self.wifi_submenu.append(disconnect_item)
                 
         self.wifi_submenu.show_all()
+
+    def on_wifi_fetch_failed(self):
+        self._wifi_fetching = False
 
     def on_wifi_item_clicked(self, item, connection_path, connection_uuid):
         if self.updating_ui or not self.wifi_manager:
@@ -349,6 +372,15 @@ class IndicatorMenu(Gtk.Menu):
     def on_wifi_disconnect_clicked(self, item, active_connection_path):
         if not self.wifi_manager:
             return
+            
+        # If the path is not provided, try to resolve it now dynamically
+        if not active_connection_path or active_connection_path == '/':
+            _, active_connection_path = self.wifi_manager.get_active_wifi()
+            
+        if not active_connection_path or active_connection_path == '/':
+            logger.warning("Cannot disconnect: no active Wi-Fi connection path found.")
+            return
+
         logger.info("User requested deactivation of active connection: %s", active_connection_path)
         
         # Start Changing state (disconnecting)
@@ -385,13 +417,22 @@ class IndicatorMenu(Gtk.Menu):
             self.wifi_monitor_timer_id = None
             return False # Stop timer
             
-        now = time.time()
-        
-        if self.wifi_manager:
-            active_uuid, active_path = self.wifi_manager.get_active_wifi()
-        else:
-            active_uuid, active_path = None, None
+        def bg_check():
+            try:
+                active_uuid, active_path = self.wifi_manager.get_active_wifi() if self.wifi_manager else (None, None)
+                GLib.idle_add(self.on_transition_status_checked, active_uuid, active_path)
+            except Exception as e:
+                logger.error("Error in background transition status check: %s", e)
+
+        threading.Thread(target=bg_check, daemon=True).start()
+        return True # Keep timer running
+
+    def on_transition_status_checked(self, active_uuid, active_path):
+        if self.wifi_changing_time == 0:
+            # Already resolved or cancelled in the meantime
+            return
             
+        now = time.time()
         resolved = False
         if now - self.wifi_changing_time >= 30:
             logger.info("Wi-Fi changing state timed out via monitor.")
@@ -411,10 +452,9 @@ class IndicatorMenu(Gtk.Menu):
             
         if resolved:
             self.refresh_wifi_submenu()
-            self.wifi_monitor_timer_id = None
-            return False # Stop timer
-            
-        return True # Keep timer running
+            if self.wifi_monitor_timer_id is not None:
+                GLib.source_remove(self.wifi_monitor_timer_id)
+                self.wifi_monitor_timer_id = None
 
     def on_destroy(self, _widget):
         logger.info("Destroying IndicatorMenu, cleaning up timers and callbacks.")

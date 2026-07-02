@@ -7,7 +7,6 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
 
 from wifi_manager import WifiManager
-from gi.repository import GLib
 
 class TestWifiManager(unittest.TestCase):
     def setUp(self):
@@ -260,6 +259,86 @@ class TestWifiManager(unittest.TestCase):
             success = self.wifi_mgr.deactivate_connection('/active/1')
         self.assertFalse(success)
         self.assertTrue(any('Error deactivating Wi-Fi connection' in m for m in cm.output))
+
+    @patch('gi.repository.Gio.bus_get_sync')
+    @patch('gi.repository.Gio.DBusProxy.new_sync')
+    def test_wifi_manager_init_default_success(self, mock_new_sync, mock_bus_get_sync):
+        mock_bus = MagicMock()
+        mock_bus_get_sync.return_value = mock_bus
+        
+        mock_proxy1 = MagicMock()
+        mock_proxy2 = MagicMock()
+        mock_new_sync.side_effect = [mock_proxy1, mock_proxy2]
+        
+        mgr = WifiManager()
+        self.assertEqual(mgr.bus, mock_bus)
+        self.assertEqual(mgr.nm_proxy, mock_proxy1)
+        self.assertEqual(mgr.settings_proxy, mock_proxy2)
+
+    @patch('gi.repository.Gio.DBusProxy.new_sync')
+    def test_wifi_manager_init_with_bus_only(self, mock_new_sync):
+        mock_bus = MagicMock()
+        mock_proxy1 = MagicMock()
+        mock_proxy2 = MagicMock()
+        mock_new_sync.side_effect = [mock_proxy1, mock_proxy2]
+        
+        mgr = WifiManager(bus=mock_bus)
+        self.assertEqual(mgr.bus, mock_bus)
+        self.assertEqual(mgr.nm_proxy, mock_proxy1)
+        self.assertEqual(mgr.settings_proxy, mock_proxy2)
+
+    @patch('gi.repository.Gio.bus_get_sync')
+    @patch('gi.repository.Gio.DBusProxy.new_sync')
+    def test_wifi_manager_init_partially_configured_fails(self, mock_new_sync, mock_bus_get_sync):
+        mock_bus = MagicMock()
+        mock_bus_get_sync.return_value = mock_bus
+        mock_new_sync.side_effect = [MagicMock(), Exception("D-Bus proxy error")]
+        
+        mgr = WifiManager()
+        self.assertIsNone(mgr.bus)
+        self.assertIsNone(mgr.nm_proxy)
+        self.assertIsNone(mgr.settings_proxy)
+
+    @patch('gi.repository.Gio.bus_get_sync')
+    def test_wifi_manager_init_missing_bus_fails(self, mock_bus_get_sync):
+        mock_bus_get_sync.side_effect = Exception("System bus connection failed")
+        mgr = WifiManager()
+        self.assertIsNone(mgr.bus)
+        self.assertIsNone(mgr.nm_proxy)
+        self.assertIsNone(mgr.settings_proxy)
+
+    def test_get_saved_wifi_connections_active_uuid_none(self):
+        self.wifi_mgr.get_available_ssids = MagicMock(return_value=set())
+        self.wifi_mgr.get_active_wifi = MagicMock(return_value=(None, None))
+
+        mock_list = MagicMock()
+        mock_list.unpack.return_value = (['/path/1'],)
+        self.mock_settings_proxy.call_sync.return_value = mock_list
+
+        mock_conn_proxy = MagicMock()
+        mock_settings = MagicMock()
+        mock_settings.unpack.return_value = ({
+            'connection': {
+                'id': 'MyWifi',
+                'uuid': None,
+                'type': '802-11-wireless'
+            },
+            '802-11-wireless': {
+                'ssid': [77, 121, 87, 105, 102, 105]
+            }
+        },)
+        mock_conn_proxy.call_sync.return_value = mock_settings
+
+        with patch('gi.repository.Gio.DBusProxy.new_sync', return_value=mock_conn_proxy):
+            connections = self.wifi_mgr.get_saved_wifi_connections()
+
+        self.assertEqual(len(connections), 0)
+
+    def test_deactivate_connection_invalid_path(self):
+        success = self.wifi_mgr.deactivate_connection(None)
+        self.assertFalse(success)
+        success = self.wifi_mgr.deactivate_connection('/')
+        self.assertFalse(success)
 
 if __name__ == '__main__':
     unittest.main()

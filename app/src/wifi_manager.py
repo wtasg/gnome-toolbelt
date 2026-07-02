@@ -11,32 +11,47 @@ class WifiManager:
         self.nm_proxy = nm_proxy
         self.settings_proxy = settings_proxy
         
-        if bus is None and nm_proxy is None:
+        # If the bus is missing, try to initialize it
+        if self.bus is None:
             try:
                 self.bus = Gio.bus_get_sync(Gio.BusType.SYSTEM, None)
-                self.nm_proxy = Gio.DBusProxy.new_sync(
-                    self.bus,
-                    Gio.DBusProxyFlags.NONE,
-                    None,
-                    'org.freedesktop.NetworkManager',
-                    '/org/freedesktop/NetworkManager',
-                    'org.freedesktop.NetworkManager',
-                    None
-                )
-                self.settings_proxy = Gio.DBusProxy.new_sync(
-                    self.bus,
-                    Gio.DBusProxyFlags.NONE,
-                    None,
-                    'org.freedesktop.NetworkManager',
-                    '/org/freedesktop/NetworkManager/Settings',
-                    'org.freedesktop.NetworkManager.Settings',
-                    None
-                )
+            except Exception as e:
+                logger.warning("Could not connect to D-Bus system bus: %s", e)
+
+        # If we have a bus, try to initialize missing proxies
+        if self.bus is not None:
+            try:
+                if self.nm_proxy is None:
+                    self.nm_proxy = Gio.DBusProxy.new_sync(
+                        self.bus,
+                        Gio.DBusProxyFlags.NONE,
+                        None,
+                        'org.freedesktop.NetworkManager',
+                        '/org/freedesktop/NetworkManager',
+                        'org.freedesktop.NetworkManager',
+                        None
+                    )
+                if self.settings_proxy is None:
+                    self.settings_proxy = Gio.DBusProxy.new_sync(
+                        self.bus,
+                        Gio.DBusProxyFlags.NONE,
+                        None,
+                        'org.freedesktop.NetworkManager',
+                        '/org/freedesktop/NetworkManager/Settings',
+                        'org.freedesktop.NetworkManager.Settings',
+                        None
+                    )
                 logger.info("Successfully connected to NetworkManager D-Bus service.")
             except Exception as e:
                 logger.warning("Could not connect to NetworkManager D-Bus service: %s", e)
-                self.nm_proxy = None
-                self.settings_proxy = None
+
+        # Ensure that either all are successfully initialized, or none are.
+        # This prevents a partially configured instance.
+        if not (self.bus and self.nm_proxy and self.settings_proxy):
+            logger.warning("WifiManager initialization incomplete. Disabling WifiManager.")
+            self.bus = None
+            self.nm_proxy = None
+            self.settings_proxy = None
 
     def get_available_ssids(self):
         available_ssids = set()
@@ -168,7 +183,7 @@ class WifiManager:
                                 is_available = True
                                 
                         # Always include the currently active network, even if not scanned
-                        if is_available or (uuid == active_uuid):
+                        if is_available or (active_uuid is not None and uuid == active_uuid):
                             wifi_connections.append({
                                 'id': conn_info.get('id'),
                                 'uuid': uuid,
@@ -262,6 +277,9 @@ class WifiManager:
 
     def deactivate_connection(self, active_connection_path):
         if not self.nm_proxy:
+            return False
+        if not active_connection_path or active_connection_path == '/':
+            logger.error("Invalid active connection path: %s", active_connection_path)
             return False
         try:
             logger.info("Deactivating Wi-Fi connection: %s", active_connection_path)
