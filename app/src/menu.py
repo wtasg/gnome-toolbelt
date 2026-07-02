@@ -21,6 +21,7 @@ class IndicatorMenu(Gtk.Menu):
         self.wifi_changing_time = 0.0
         self.wifi_monitor_timer_id = None
         self._wifi_fetching = False
+        self._wifi_monitor_check_inflight = False
 
         logger.info("Building drop-down menu items...")
         self.build_menu()
@@ -432,12 +433,19 @@ class IndicatorMenu(Gtk.Menu):
             self.wifi_monitor_timer_id = None
             return False # Stop timer
             
+        if self._wifi_monitor_check_inflight:
+            return True # Keep timer running, wait for the in-flight check to complete
+            
+        self._wifi_monitor_check_inflight = True
+            
         def bg_check():
             try:
                 active_uuid, active_path = self.wifi_manager.get_active_wifi() if self.wifi_manager else (None, None)
                 GLib.idle_add(self.on_transition_status_checked, active_uuid, active_path)
             except Exception as e:
                 logger.error("Error in background transition status check: %s", e)
+            finally:
+                self._wifi_monitor_check_inflight = False
 
         threading.Thread(target=bg_check, daemon=True).start()
         return True # Keep timer running
