@@ -2,9 +2,11 @@ import subprocess
 import logging
 import threading
 import time
+import json
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +89,12 @@ class IndicatorMenu(Gtk.Menu):
             self.wifi_submenu = Gtk.Menu()
             wifi_menu_item.set_submenu(self.wifi_submenu)
             self.append(wifi_menu_item)
+
+        # --- Shortcuts Section (dynamic, populated on menu show) ---
+        self.shortcuts_menu_item = Gtk.MenuItem.new_with_label("Shortcuts")
+        self.shortcuts_submenu = Gtk.Menu()
+        self.shortcuts_menu_item.set_submenu(self.shortcuts_submenu)
+        self.append(self.shortcuts_menu_item)
 
         # --- Separator ---
         self.append(Gtk.SeparatorMenuItem())
@@ -183,6 +191,75 @@ class IndicatorMenu(Gtk.Menu):
         self.sync_power_ui()
         self.sync_theme_ui()
 
+    # --- Shortcuts Menu ---
+
+    def refresh_shortcuts_submenu(self):
+        """Populate the Shortcuts submenu with drawers and their shortcuts."""
+        try:
+            if not hasattr(self, 'shortcuts_submenu'):
+                return
+            
+            # Clear previous items
+            for child in self.shortcuts_submenu.get_children():
+                self.shortcuts_submenu.remove(child)
+            
+            # Load drawers config
+            drawers_file = Path.home() / '.config' / 'gnome-toolbelt' / 'drawers.json'
+            if not drawers_file.exists():
+                empty_item = Gtk.MenuItem.new_with_label("(No shortcuts configured)")
+                empty_item.set_sensitive(False)
+                self.shortcuts_submenu.append(empty_item)
+                self.shortcuts_submenu.show_all()
+                return
+            
+            with drawers_file.open('r', encoding='utf-8') as f:
+                drawers = json.load(f)
+            
+            if not drawers:
+                empty_item = Gtk.MenuItem.new_with_label("(No shortcuts configured)")
+                empty_item.set_sensitive(False)
+                self.shortcuts_submenu.append(empty_item)
+                self.shortcuts_submenu.show_all()
+                return
+            
+            # Add each drawer with its shortcuts
+            for drawer_name, items in drawers.items():
+                if not items:  # Skip empty drawers
+                    continue
+                
+                # Create drawer submenu
+                drawer_item = Gtk.MenuItem.new_with_label(drawer_name)
+                drawer_submenu = Gtk.Menu()
+                drawer_item.set_submenu(drawer_submenu)
+                
+                # Add shortcuts to drawer submenu
+                for shortcut in items:
+                    name = shortcut.get('name', 'Unnamed')
+                    command = shortcut.get('command', '')
+                    shortcut_item = Gtk.MenuItem.new_with_label(name)
+                    shortcut_item.connect('activate', self.on_shortcut_clicked, command)
+                    drawer_submenu.append(shortcut_item)
+                
+                self.shortcuts_submenu.append(drawer_item)
+            
+            # Add separator and manage option
+            self.shortcuts_submenu.append(Gtk.SeparatorMenuItem())
+            manage_item = Gtk.MenuItem.new_with_label("Manage Shortcuts...")
+            manage_item.connect('activate', self.open_shortcuts_drawers)
+            self.shortcuts_submenu.append(manage_item)
+            
+            self.shortcuts_submenu.show_all()
+        except Exception:
+            logger.exception('Failed to refresh shortcuts submenu')
+
+    def on_shortcut_clicked(self, _item, command):
+        """Execute a shortcut command."""
+        try:
+            logger.info(f'Executing shortcut: {command}')
+            subprocess.Popen(command.split())
+        except Exception:
+            logger.exception(f'Failed to execute shortcut: {command}')
+
     # --- Utility Launchers ---
 
     def open_power_settings(self, _item):
@@ -198,6 +275,46 @@ class IndicatorMenu(Gtk.Menu):
             subprocess.Popen(["gnome-system-monitor"])
         except Exception as e:
             logger.error("Error opening system monitor: %s", e)
+
+    def open_shortcuts_drawers(self, _item):
+        logger.info('>>> open_shortcuts_drawers called')
+        try:
+            # Hide the menu first so it doesn't overlap the dock
+            try:
+                self.hide()
+            except Exception:
+                pass
+
+            logger.info('>>> Importing DrawersDock')
+            try:
+                from .drawers import DrawersDock
+            except Exception:
+                logger.info('>>> Relative import failed, using importlib')
+                import importlib
+                drawers_mod = importlib.import_module('drawers')
+                DrawersDock = getattr(drawers_mod, 'DrawersDock')
+
+            if getattr(self, '_drawers_dock', None) is None:
+                logger.info('>>> Creating new DrawersDock instance')
+                self._drawers_dock = DrawersDock()
+                logger.info('>>> DrawersDock created successfully')
+            else:
+                logger.info('>>> Refreshing existing DrawersDock')
+                try:
+                    self._drawers_dock.refresh()
+                except Exception:
+                    logger.exception('Failed to refresh DrawersDock; recreating')
+                    self._drawers_dock = DrawersDock()
+                # Always show/present the dock
+                try:
+                    self._drawers_dock.deiconify()  # restore if minimized
+                    self._drawers_dock.present()
+                except Exception:
+                    pass
+
+        except Exception:
+            logger.exception('>>> Failed to open Shortcuts Drawers dock')
+            logger.exception('Failed to open Shortcuts Drawers window')
 
     def show_about_dialog(self, _item):
         if self._about_dialog:
@@ -228,8 +345,9 @@ class IndicatorMenu(Gtk.Menu):
         Gtk.main_quit()
 
     def on_menu_show(self, _menu):
-        logger.info("Main menu shown. Refreshing Wi-Fi submenu...")
+        logger.info("Main menu shown. Refreshing Wi-Fi submenu and Shortcuts...")
         self.refresh_wifi_submenu()
+        self.refresh_shortcuts_submenu()
 
     def refresh_wifi_submenu(self):
         if not self.wifi_manager or not hasattr(self, 'wifi_submenu'):

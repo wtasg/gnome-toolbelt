@@ -3,6 +3,9 @@ from unittest.mock import MagicMock, patch
 import sys
 import os
 import time
+import json
+import tempfile
+from pathlib import Path
 
 # Add src folder to module lookup path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../src')))
@@ -112,6 +115,83 @@ class TestIndicatorMenu(unittest.TestCase):
                 target_fn()
                 
             self.assertFalse(self.menu._wifi_monitor_check_inflight)
+
+    @patch('menu.Path.home')
+    @patch('gi.repository.Gtk.Menu.get_children')
+    def test_refresh_shortcuts_submenu_empty_drawers(self, mock_get_children, mock_home):
+        """Test that shortcuts submenu handles missing or empty drawers config."""
+        temp_dir = tempfile.TemporaryDirectory()
+        mock_home.return_value = Path(temp_dir.name)
+        
+        # No drawers config file
+        mock_get_children.return_value = []
+        
+        with patch.object(self.menu, 'shortcuts_submenu'):
+            self.menu.refresh_shortcuts_submenu()
+            # Should not raise exception
+            temp_dir.cleanup()
+
+    @patch('menu.Path.home')
+    @patch('gi.repository.Gtk.MenuItem')
+    @patch('gi.repository.Gtk.Menu')
+    @patch('gi.repository.Gtk.SeparatorMenuItem')
+    def test_refresh_shortcuts_submenu_with_drawers(self, mock_sep_item, mock_menu_class, mock_menu_item_class, mock_home):
+        """Test that shortcuts submenu populates with drawers and shortcuts."""
+        temp_dir = tempfile.TemporaryDirectory()
+        temp_path = Path(temp_dir.name)
+        mock_home.return_value = temp_path
+        
+        # Create test drawers config
+        config_file = temp_path / '.config' / 'gnome-toolbelt' / 'drawers.json'
+        config_file.parent.mkdir(parents=True, exist_ok=True)
+        test_drawers = {
+            'Dev': [
+                {'name': 'Terminal', 'command': 'gnome-terminal', 'icon': None},
+                {'name': 'Editor', 'command': 'code', 'icon': 'code'}
+            ],
+            'Work': [
+                {'name': 'Firefox', 'command': 'firefox', 'icon': 'firefox'}
+            ]
+        }
+        with open(config_file, 'w') as f:
+            json.dump(test_drawers, f)
+        
+        # Mock menu items and submenu
+        mock_drawer_item = MagicMock()
+        mock_drawer_submenu = MagicMock()
+        mock_shortcut_item = MagicMock()
+        
+        mock_menu_item_class.side_effect = [mock_drawer_item, mock_shortcut_item, mock_shortcut_item, mock_drawer_item, mock_shortcut_item, MagicMock()]
+        mock_menu_class.return_value = mock_drawer_submenu
+        mock_sep_item.return_value = MagicMock()
+        
+        with patch.object(self.menu, 'shortcuts_submenu') as mock_submenu:
+            mock_submenu.get_children.return_value = []
+            self.menu.refresh_shortcuts_submenu()
+            
+            # Verify append was called (drawers + separator + manage item)
+            self.assertTrue(mock_submenu.append.called)
+        
+        temp_dir.cleanup()
+
+    def test_on_shortcut_clicked_executes_command(self):
+        """Test that clicking a shortcut executes its command."""
+        with patch('subprocess.Popen') as mock_popen:
+            self.menu.on_shortcut_clicked(MagicMock(), 'firefox')
+            mock_popen.assert_called_once_with('firefox'.split())
+
+    def test_on_shortcut_clicked_handles_command_with_args(self):
+        """Test that shortcut with arguments is executed correctly."""
+        with patch('subprocess.Popen') as mock_popen:
+            command = 'code /home/user/project'
+            self.menu.on_shortcut_clicked(MagicMock(), command)
+            mock_popen.assert_called_once_with(command.split())
+
+    def test_on_shortcut_clicked_exception_handling(self):
+        """Test that exceptions during shortcut execution are handled gracefully."""
+        with patch('subprocess.Popen', side_effect=Exception("Command not found")):
+            # Should not raise exception
+            self.menu.on_shortcut_clicked(MagicMock(), 'nonexistent-command')
 
 if __name__ == '__main__':
     unittest.main()
